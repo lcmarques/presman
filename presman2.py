@@ -106,10 +106,31 @@ def resman_perf():
 
 def resman_sess_io():
 	sql_text = '''
-	WITH sessIO as (SELECT current_consumer_group, current_small_read_megabytes+current_large_read_megabytes+current_small_write_megabytes+current_large_write_megabytes sessions_io_total from v$RSRC_SESSION_INFO where current_consumer_group not like \'ORA$%\') 
-	select current_consumer_group NAME, sum(current_IO_service_time) IO_SERVICE_TIME, sum(current_small_read_megabytes)  SM_READ_MB, sum(current_large_read_megabytes) LM_READ_MB, 
-	sum(current_small_write_megabytes) SM_WRITE_MB, sum(current_large_write_megabytes) LM_WRITE_MB, round(((select SUM(sessions_io_total) 
-		from sessIO where current_consumer_group = a.current_consumer_group) / (select SUM(sessions_io_total) from sessIO))*100, 2) TOTAL_IO_PCT, SUM(current_undo_consumption) UNDO_CONSUMPTION FROM v$RSRC_SESSION_INFO a where current_consumer_group not like \'ORA$%\' group by current_consumer_group'''
+	WITH sessIO AS
+  (SELECT current_consumer_group,
+    current_small_read_megabytes+current_large_read_megabytes+current_small_write_megabytes+current_large_write_megabytes sessions_io_total
+  FROM v$RSRC_SESSION_INFO
+  WHERE current_consumer_group NOT LIKE \'ORA$%\'
+  )
+SELECT current_consumer_group NAME,
+  count(1) as SESSIONS,
+  state SESSION_STATE,
+  SUM(current_small_read_megabytes) SM_READ_MB,
+  SUM(current_large_read_megabytes) LM_READ_MB,
+  SUM(current_small_write_megabytes) SM_WRITE_MB,
+  SUM(current_large_write_megabytes) LM_WRITE_MB,
+  SUM(current_small_read_megabytes+current_large_read_megabytes+current_small_write_megabytes+current_large_write_megabytes) TOTAL_IO_MB,
+  ROUND((
+  (SELECT SUM(sessions_io_total)
+  FROM sessIO
+  WHERE current_consumer_group = a.current_consumer_group
+  ) /
+  (SELECT SUM(sessions_io_total) FROM sessIO
+  ))*100, 2) TOTAL_IO_PCT
+FROM v$RSRC_SESSION_INFO a
+WHERE current_consumer_group NOT LIKE \'ORA$%\'
+GROUP BY current_consumer_group, state 
+order by current_consumer_group, state '''
 
 	return sql_text
 
@@ -141,7 +162,7 @@ def resman_sess_io_calculate(con):
 	cursor=runStatement(con, resman_sess_io())
 	result1=cursor.fetchall()
 	col_names = []
-	rows_char = {} 
+	rows_char = {}
 	for i in range(0, len(cursor.description)):
 		col_names.append(cursor.description[i][0])
 
@@ -149,10 +170,12 @@ def resman_sess_io_calculate(con):
 	
 	for j in result1:
 		x.add_row(j)
-		rows_char[j[0]]=j[6]
+		rows_char[j[0]]=j[8]
 
 	print x
+
 	for y in rows_char:
+
 		value_chart=round(rows_char[y], 1)
 		print "{0:30} [{1:5} %]".format(y, str(value_chart)), int(round(value_chart,0))*'#'
 	print ''
