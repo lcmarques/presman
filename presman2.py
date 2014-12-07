@@ -85,13 +85,14 @@ def readRefreshRate():
 
 
 def readOptionFile():
-	options_all=[]
 	option = ConfigSectionMap("presman")['option']
 	
 	if (validateOptions(option) == 0): 
 		return option
-
-	return options_all
+	else:
+		print 'E: Invalid option in configuration file. Current available options are:',
+		for i in availableOptions(): print i,
+		sys.exit(1)
 
 
 
@@ -209,6 +210,7 @@ def showMyTableAndPlot(con, resman_funct, position_for_plot, saveHistoric):
 
 		# print the table to the screen
 		print ptable
+		print ''
 		
 		# print the percentage bar to the screen
 		for y in rows_char:
@@ -243,23 +245,29 @@ def showMyScreen():
 
 		con = connectDB(connection_string)
 		historical_data.append(headerKeys)
+		checkargs = checkIfOutputArgv()
+
 		while 1:
 			time.sleep(refresh_rate)
 			os.system('cls' if os.name == 'nt' else 'clear')
 			headerText(con, connection_string)
+			
+			# verify if output file is used on argv
+			if checkargs != 1: saveHD = True 
+			else: saveHD = False
 
+			#CPU query
 			if (option == 'cpu' or option == 'CPU'):
 				headerCPU(refresh_rate)
-				c_value=showMyTableAndPlot(con, resman_perf(), 7, True)
+				c_value=showMyTableAndPlot(con, resman_perf(), 7, saveHD)
 				
-
+			#Session I/O query
 			if (option == 'session_io' or option == 'SESSION_IO'):
 				headerSessionIO(refresh_rate)
-				c_value=showMyTableAndPlot(con, resman_sess_io(), 8, True)
+				c_value=showMyTableAndPlot(con, resman_sess_io(), 8, saveHD)
 				
-			if (checkIfOutputArgv() != 1):
-					historical_data.append(c_value)
-
+			if checkargs != 1: 
+				historical_data.append(c_value)
 
 
 	except KeyboardInterrupt:
@@ -267,10 +275,10 @@ def showMyScreen():
 		con.close()
 		arg_file = checkIfOutputArgv()
 		if ( arg_file != 1):
-			print arg_file
-			print("Writing buffer to file...")
+			print("Writing buffer to file "+ arg_file)
 			# on quit write data do file
 			writeFileOutput(arg_file, historical_data)
+		print 'Bye!'
 		sys.exit(1)
 
 def checkIfOutputArgv():
