@@ -22,9 +22,11 @@ import os
 import time
 headerKeys=''
 
-def headerText():
+def headerText(con, connection_string):
 	version = '1.0'
-	print 'pResman ' + version +' - Oracle Resource Manager Monitor  - Luis Marques (http://lcmarques.com)'	
+	print 'pResman ' + version +' - Oracle Resource Manager Monitor  - Luis Marques (http://lcmarques.com)'
+	print 'Connected to: '+ connection_string +'\n'
+	getDBRMinfo(con)
 
 def headerCPU(refresh_rate):
 	HEADER = '\033[94m'
@@ -117,6 +119,18 @@ def runStatement(con, sql_text):
 	cursor=con.cursor()
 	sql = cursor.execute(sql_text)
 	return cursor	
+
+def getDBRMinfo(con):
+	HEADER = '\033[92m'
+	ENDC = '\033[0m'
+	sql_text = '''select name, value from v$parameter where name in (\'resource_manager_plan\', \'resource_manager_cpu_allocation\') order by name'''
+	cursor=runStatement(con, sql_text);
+	result_query=cursor.fetchall()
+	print HEADER + 'Database Resource Manager parameters:' +ENDC
+	for j in result_query:
+		print '> '+j[0]+':'+j[1]
+	print ''
+
 
 def resman_perf():
 	sql_text = ''' WITH sumcpu as (SELECT SUM(consumed_cpu_time) consumed_cpu_percent from v$rsrc_consumer_group 
@@ -232,7 +246,7 @@ def showMyScreen():
 		while 1:
 			time.sleep(refresh_rate)
 			os.system('cls' if os.name == 'nt' else 'clear')
-			headerText()
+			headerText(con, connection_string)
 
 			if (option == 'cpu' or option == 'CPU'):
 				headerCPU(refresh_rate)
