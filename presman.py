@@ -223,12 +223,12 @@ def showPrettyTable(con, resman_funct):
 	#	sys.exit(1)
 
 # position_for_plot is the index position in the table that you want to draw the plot
-def showMyTableAndPlot(con, resman_funct, position_for_plot, saveHistoric):
+def showMyTableAndPlot(con, resman_funct, position_for_key, position_for_value, saveHistoric):
 	rows_char = {}
 
 	try:
 		result_query, ptable = showPrettyTable(con, resman_funct)
-		for j in result_query: rows_char[j[1]]=j[position_for_plot]
+		for j in result_query: rows_char[j[position_for_key]]=j[position_for_value]
 
 		# print the table to the screen
 		print ptable
@@ -236,7 +236,7 @@ def showMyTableAndPlot(con, resman_funct, position_for_plot, saveHistoric):
 		
 		# print the percentage bar to the screen
 		for y in rows_char:
-			value_chart=round(rows_char[y], 1)
+			value_chart=round(rows_char[y], position_for_key)
 			print "{0:30} [{1:5}%]".format(y, str(value_chart)), int(round(value_chart,0))*'#'
 
 		if (saveHistoric): 
@@ -272,15 +272,22 @@ def showMyTable(con, resman_funct, position_for_key, position_for_value, saveHis
 
 def help():
 	print 'pResman - Oracle Resource Manager Monitor  - Luis Marques (http://lcmarques.com)'
-	print './presman.py -m <measure_name> -o <output_file>'
+	print './presman.py -m <measure_name> -o <output_file> -c <column_id> -p'
 	print 'Available measures: cpu, parallel, session_io'
+
+	print 'Example #1 - Measure CPU by Consumer Group and plot column with id 4: ./presman.py -m cpu -c 4 -p'
+	print 'Example #2 - Measure Parallel by Consumer Group and output to file values in column with id 4: ./presman.py -m parallel -c 4 -o foobar.csv'
+
 
 def cmdlineOpts():
 
 	measure=''
 	filename=''
+	column_id=0
+	plot=False
+	help_opt=False
 	try:
-		opts, args = getopt.getopt(sys.argv[1:], 'hm:o:')
+		opts, args = getopt.getopt(sys.argv[1:], 'hm:o:c:p')
 	except getopt.GetoptError as err:
 		print(err)
 		sys.exit()
@@ -289,16 +296,39 @@ def cmdlineOpts():
 			measure=a
 		elif o in ("-o"):
 			filename=a
+		elif o in ("-c"):
+			column_id=a
+		elif o in ("-p"):
+			plot=True
 		elif o in ("-h"):
+			 help_opt=True
 			 help()
+			 sys.exit()
+
+	if (measure == '') and (help_opt == False):
+		print 'E: -m option is mandatory.'
+		sys.exit()
+	# if filename is specified by -o then -c is mandatory
+	if (filename != '') and (column_id == 0):
+		print 'E: -c option is required. Please specify the column id to output'
+		sys.exit()
+
+	# if plot is True make sure that -c is mandatory
+	if (plot==True) and (column_id == 0):
+		print 'E: -c option is required to plot your data. Make sure that you plot a percentage column'
+		sys.exit()
+
+
         
-	return measure, filename   
+	return measure, filename, column_id, plot
 
 
 # measure = measurement name
 # arg_file = filename output
+# column_id = id of the column to output to the file
+# plot = draw a plot?
 
-def showMyScreen(measure, arg_file):
+def showMyScreen(measure, arg_file, column_id, plot):
 	try:
 		historical_data=[]
 		connection_string = readConnectionString()
@@ -326,20 +356,30 @@ def showMyScreen(measure, arg_file):
 			#CPU query
 			if (measure == 'cpu' or measure == 'CPU'):
 				headerCPU(refresh_rate)
-				c_value=showMyTableAndPlot(con, resman_perf(), 4, saveHD)
+				if plot:
+					c_value=showMyTableAndPlot(con, resman_perf(), 1, int(column_id), saveHD) 
+				else: 
+					c_value=showMyTable(con, resman_perf(), 1, int(column_id), saveHD)
+
 				time.sleep(refresh_rate)
 
 			#Session I/O query
 			if (measure == 'session_io' or measure == 'SESSION_IO'):
 				headerSessionIO(refresh_rate)
-				c_value=showMyTableAndPlot(con, resman_sess_io(), 8, saveHD)
+				if plot:
+					c_value=showMyTableAndPlot(con, resman_sess_io(), 1, int(column_id), saveHD)
+				else:
+					c_value=showMyTable(con, resman_sess_io(), 1, int(column_id), saveHD)
+
 				time.sleep(refresh_rate)
 
 			 #Parallel query
 			if (measure == 'parallel' or measure == 'PARALLEL'):
 				headerParallel(refresh_rate)
-				showMyTable(con, resman_sess_parallel(), 2, 5, False)
-				#c_value=showMyTable(con, resman_sess_parallel(), 2, 5, False)
+				if plot:
+					c_value=showMyTableAndPlot(con, resman_sess_parallel(), 1, int(column_id), saveHD)
+				else:
+					c_value=showMyTable(con, resman_sess_parallel(), 1, int(column_id), saveHD)
 
 				time.sleep(refresh_rate)
 				
@@ -359,8 +399,8 @@ def showMyScreen(measure, arg_file):
 
 
 def main(argv):		
-	measure, filename = cmdlineOpts()
-	showMyScreen(measure, filename)		
+	measure, filename, column_id, plot = cmdlineOpts()
+	showMyScreen(measure, filename, column_id, plot)		
 
 if __name__ == "__main__":
 	main(sys.argv[1:])
