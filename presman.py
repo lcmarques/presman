@@ -6,7 +6,7 @@
 #| . \ '_> ._><_-<| ' ' <_> | ' |
 #|  _/_| \___./__/|_|_|_<___|_|_|
 #|_|                             
-# presman - version 1.2 
+# presman - version 1.2
 # Author: Luis Marques
 # Oracle Resource Manager Monitor 
 
@@ -23,7 +23,7 @@ import time
 headerKeys=''
 
 def headerText(con, connection_string):
-	version = '1.0'
+	version = '1.2'
 	print 'pResman ' + version +' - Oracle Resource Manager Monitor  - Luis Marques (http://lcmarques.com)'
 	print 'Connected to: '+ connection_string +'\n'
 	getDBRMinfo(con)
@@ -141,7 +141,7 @@ def getDBRMinfo(con):
 def resman_perf():
 	sql_text = ''' 
 WITH total_consumed_time AS (
-SELECT inst_id, SUM(cpu_consumed_time) total_cpu_time  FROM gv$rsrcmgrmetric
+SELECT inst_id, DECODE(SUM(cpu_consumed_time),0,1,SUM(cpu_consumed_time)) total_cpu_time  FROM gv$rsrcmgrmetric
 group by inst_id
 )
 SELECT rs1.inst_id,
@@ -161,7 +161,7 @@ order by inst_id, consumer_group_name
 
 def resman_sess_io():
 	sql_text = '''
-SELECT 
+SELECT a.inst_id,
   gc.consumer_group NAME,
   count(1) as SESSIONS,
   SUM(a.small_read_megabytes) SM_READ_MB,
@@ -170,46 +170,20 @@ SELECT
   SUM(a.large_write_megabytes) LM_WRITE_MB,
   SUM(a.small_read_megabytes+large_read_megabytes+small_write_megabytes+large_write_megabytes) TOTAL_IO_MB,
   ROUND(SUM(a.small_read_megabytes+large_read_megabytes+small_write_megabytes+large_write_megabytes) / (select SUM(small_read_megabytes+large_read_megabytes+small_write_megabytes+large_write_megabytes)  FROM v$RSRC_SESSION_INFO sess, DBA_RSRC_CONSUMER_GROUPS cg where sess.current_consumer_group_id = cg.consumer_group_id and cg.consumer_group NOT LIKE \'ORA$%\') * 100, 2) CONSUMED_IO_PERCENT
-FROM V$RSRC_SESSION_INFO a,
+FROM GV$RSRC_SESSION_INFO a,
 DBA_RSRC_CONSUMER_GROUPS gc
-WHERE gc.consumer_group NOT LIKE \'ORA$%\'
-AND gc.consumer_group_id = a.current_consumer_group_id
-GROUP BY gc.consumer_group  
-order by gc.consumer_group '''
+where gc.consumer_group_id = a.current_consumer_group_id
+GROUP BY a.inst_id, gc.consumer_group
+order by 1,2 '''
 
 	return sql_text
-
-def resman_sess_parallel_cg():
-	sql_text = '''
-		select inst_id, name,CURRENT_PQS_ACTIVE PX_STATEMENTS, CURRENT_PQS_QUEUED PX_QUEUED_STATEMENTS, PQ_QUEUED_TIME PX_STATEMENTS_QUEUE_TIME, CURRENT_PQ_SERVERS_ACTIVE PX_SERVERS 
-from GV$RSRC_CONSUMER_GROUP
-order by name
-	'''
-	return sql_text
-
 
 def resman_sess_parallel():
 	sql_text = '''
-		SELECT s.inst_id,
-	s.sid,
-	r.state,
-  s.resource_consumer_group CONSUMER_GROUP,
-  r.pq_active,
-  r.dop DOP,
-  r.current_pq_active_time CUR_PQ_ACTIVE_TIME, 
-  r.current_pq_queued_time CUR_PQ_QUEUED_TIME,
-  px.value/100 CPU_USAGE_SECS
-FROM gv$session s,
-  gv$rsrc_session_info r,
-  gv$PX_SESSTAT px
-WHERE s.inst_id = r.inst_id
-AND px.sid = s.sid
-AND s.serial# = px.serial#
-AND s.sid       = r.sid
-AND r.dop       > 0
-and px.inst_id = r.inst_id
-and px.statistic#=19
-ORDER BY s.resource_consumer_group, CPU_USAGE_SECS
+		select inst_id, name CONSUMER_GROUP, (PQ_ACTIVE_TIME/1000) PX_STMT_ACTIVE_SECS, CURRENT_PQS_ACTIVE PX_STMT, CURRENT_PQS_QUEUED PX_QUEUED_SESSIONS, PQ_QUEUED_TIME PX_SESSIONS_QUEUE_TIME, CURRENT_PQ_SERVERS_ACTIVE PX_SERVERS,
+		PQ_QUEUE_TIME_OUTS PX_STMT_TIMEOUTS 
+		from GV$RSRC_CONSUMER_GROUP
+		order by 1,2
 	'''
 	return sql_text
 
@@ -358,14 +332,14 @@ def showMyScreen(measure, arg_file):
 			#Session I/O query
 			if (measure == 'session_io' or measure == 'SESSION_IO'):
 				headerSessionIO(refresh_rate)
-				c_value=showMyTableAndPlot(con, resman_sess_io(), 7, saveHD)
+				c_value=showMyTableAndPlot(con, resman_sess_io(), 8, saveHD)
 				time.sleep(refresh_rate)
 
 			 #Parallel query
 			if (measure == 'parallel' or measure == 'PARALLEL'):
 				headerParallel(refresh_rate)
 				showMyTable(con, resman_sess_parallel(), 2, 5, False)
-				c_value=showMyTable(con, resman_sess_parallel_cg(), 2, 5, False)
+				#c_value=showMyTable(con, resman_sess_parallel(), 2, 5, False)
 
 				time.sleep(refresh_rate)
 				
