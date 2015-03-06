@@ -38,6 +38,13 @@ def headerSessionIO(refresh_rate):
 	ENDC = '\033[0m'
 	print HEADER + 'Session I/O Information by Consumer Group '+ENDC+'(Refresh time: '+str(refresh_rate)+' seconds)\n'
 
+
+def headerEmphasis(refresh_rate):
+	HEADER = '\033[90m'
+	ENDC = '\033[0m'
+	print HEADER + 'Minimum CPU (emphasis) by Consumer Group '+ENDC+'(Refresh time: '+str(refresh_rate)+' seconds)\n'
+
+
 def headerParallel(refresh_rate):
 	HEADER = '\033[94m'
 	ENDC = '\033[0m'
@@ -129,13 +136,76 @@ def runStatement(con, sql_text):
 def getDBRMinfo(con):
 	HEADER = '\033[92m'
 	ENDC = '\033[0m'
-	sql_text = '''select name, value from v$parameter where name in (\'resource_manager_plan\', \'resource_manager_cpu_allocation\') order by name'''
+	sql_text = '''select name, value from v$parameter where name in (\'resource_manager_plan\', \'resource_manager_cpu_allocation\', \'cpu_count\') order by name'''
 	cursor=runStatement(con, sql_text);
 	result_query=cursor.fetchall()
 	print HEADER + 'Database Resource Manager parameters:' +ENDC
 	for j in result_query:
-		print '> '+j[0]+':'+j[1]
+		parameter_name = j[0]
+		parameter_value = j[1]
+
+		if parameter_value == None:
+			parameter_value = 'N/A'
+
+		print '> '+ parameter_name +':'+ parameter_value
 	print ''
+
+def resman_cpu_directives():
+	sql_text = '''
+	select  GROUP_OR_SUBPLAN, MGMT_P1, MGMT_P2, MGMT_P3, MGMT_P4, MGMT_P5, MGMT_P6, MGMT_P7, MGMT_P8 from DBA_RSRC_PLAN_DIRECTIVES
+where plan = 'DBRM_PLAN'
+'''
+	return sql_text
+
+def getCPUDirectives(con):
+	sql_text = resman_cpu_directives();
+	cursor=runStatement(con, sql_text);
+	result_query=cursor.fetchall()
+	array_tuple=[]
+	col_names=[]
+
+	#level_sum=[sum(x) for x in zip(*result_query)]
+	lista=list(result_query)
+
+	converted_list=[]
+
+	for i in zip(*result_query):
+		converted_list.append(list(i))
+
+	consumer_groups_list=converted_list[0] #save consumer groups
+	converted_list.pop(0) #remove consumer groups
+
+	spent=0
+
+	for i,j in enumerate(converted_list):
+		values=converted_list[i]
+		
+		#do the math
+		abc=list(map((lambda x: (100-spent)/100.0*x), values))
+		 
+		spent = spent + sum(abc)
+		
+
+		#abc.insert(0,j)
+		array_tuple.append(tuple(abc))
+
+	
+	final_array=zip(*array_tuple)
+	temp_list=list(final_array)
+	fl=[]
+	for i,j in enumerate(consumer_groups_list):
+		 tl=list(temp_list[i])
+		 tl.insert(0, j)
+		 fl.append(tl)
+		 
+
+	final_tuple=tuple(fl)
+
+	for i in range(0, 9): col_names.append(cursor.description[i][0])
+	ptable = PrettyTable(col_names)
+	for r in final_tuple: ptable.add_row(r)
+	print ptable
+
 
 
 def resman_perf():
@@ -273,10 +343,11 @@ def showMyTable(con, resman_funct, position_for_key, position_for_value, saveHis
 def help():
 	print 'pResman - Oracle Resource Manager Monitor  - Luis Marques (http://lcmarques.com)'
 	print './presman.py -m <measure_name> -o <output_file> -c <column_id> -p'
-	print 'Available measures: cpu, parallel, session_io'
+	print 'Available measures: cpu, parallel, session_io, emphasis'
 
 	print 'Example #1 - Measure CPU by Consumer Group and plot column with id 4: ./presman.py -m cpu -c 4 -p'
 	print 'Example #2 - Measure Parallel by Consumer Group and output to file values in column with id 4: ./presman.py -m parallel -c 4 -o foobar.csv'
+	print 'Example #3 - Show the minimum CPU for each Consumer Group: ./presman.py -m emphasis'
 
 
 def cmdlineOpts():
@@ -385,6 +456,12 @@ def showMyScreen(measure, arg_file, column_id, plot):
 				
 			if arg_file != '': 
 				historical_data.append(c_value)
+
+			if (measure == 'emphasis' or measure == 'EMPHASIS'):
+				headerEmphasis(refresh_rate)
+				getCPUDirectives(con)
+				time.sleep(refresh_rate)
+
 
 
 	except KeyboardInterrupt:
