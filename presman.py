@@ -133,6 +133,20 @@ def runStatement(con, sql_text):
 	sql = cursor.execute(sql_text)
 	return cursor	
 
+
+def getParameter(con, parameter_name):
+	try:
+		sql_text = 'select value from v$parameter where name=\''+parameter_name+'\''
+		cursor=runStatement(con, sql_text);
+		result_query=cursor.fetchall()
+		return result_query[0][0]
+		
+	except:
+		print 'E: Error getting Oracle parameter values.'
+		sys.exit(1)
+
+	
+
 def getDBRMinfo(con):
 	HEADER = '\033[92m'
 	ENDC = '\033[0m'
@@ -150,17 +164,22 @@ def getDBRMinfo(con):
 		print '> '+ parameter_name +':'+ parameter_value
 	print ''
 
-def resman_cpu_directives():
-	sql_text = '''
-	select  GROUP_OR_SUBPLAN, MGMT_P1, MGMT_P2, MGMT_P3, MGMT_P4, MGMT_P5, MGMT_P6, MGMT_P7, MGMT_P8 from DBA_RSRC_PLAN_DIRECTIVES
-where plan = 'DBRM_PLAN'
-'''
+def resman_cpu_directives(active_plan):
+	sql_text ='select  GROUP_OR_SUBPLAN, MGMT_P1, MGMT_P2, MGMT_P3, MGMT_P4, MGMT_P5, MGMT_P6, MGMT_P7, MGMT_P8 from DBA_RSRC_PLAN_DIRECTIVES where plan = \''+active_plan+'\''
 	return sql_text
 
 def getCPUDirectives(con):
-	sql_text = resman_cpu_directives();
+	
+	active_plan=getParameter(con, 'resource_manager_plan')
+	sql_text = resman_cpu_directives(active_plan);
 	cursor=runStatement(con, sql_text);
 	result_query=cursor.fetchall()
+
+	#verify if plan is not maintenance or have no consumer groups
+	if len(result_query) == 0:
+		print 'E: Active plan '+active_plan+ ' has no available consumer groups. Check your resource_manager_plan parameter!'
+		sys.exit(1)
+
 	array_tuple=[]
 	col_names=[]
 
@@ -184,9 +203,6 @@ def getCPUDirectives(con):
 		abc=list(map((lambda x: (100-spent)/100.0*x), values))
 		 
 		spent = spent + sum(abc)
-		
-
-		#abc.insert(0,j)
 		array_tuple.append(tuple(abc))
 
 	
@@ -231,18 +247,26 @@ order by inst_id, consumer_group_name
 
 def resman_sess_io():
 	sql_text = '''
+WITH total_io as
+(
+select inst_id, SUM(small_read_megabytes+large_read_megabytes+small_write_megabytes+large_write_megabytes) as total_io FROM GV$RSRC_SESSION_INFO 
+group by inst_id
+)
 SELECT a.inst_id,
   gc.consumer_group NAME,
   count(1) as SESSIONS,
-  SUM(a.small_read_megabytes) SM_READ_MB,
-  SUM(a.large_read_megabytes) LM_READ_MB,
-  SUM(a.small_write_megabytes) SM_WRITE_MB,
-  SUM(a.large_write_megabytes) LM_WRITE_MB,
-  SUM(a.small_read_megabytes+large_read_megabytes+small_write_megabytes+large_write_megabytes) TOTAL_IO_MB,
-  ROUND(SUM(a.small_read_megabytes+large_read_megabytes+small_write_megabytes+large_write_megabytes) / (select SUM(small_read_megabytes+large_read_megabytes+small_write_megabytes+large_write_megabytes)  FROM v$RSRC_SESSION_INFO sess, DBA_RSRC_CONSUMER_GROUPS cg where sess.current_consumer_group_id = cg.consumer_group_id and cg.consumer_group NOT LIKE \'ORA$%\') * 100, 2) CONSUMED_IO_PERCENT
+  SUM(a.small_read_megabytes) SINGLE_BREAD,
+  SUM(a.large_read_megabytes) MULTI_BREAD,
+  SUM(a.small_write_megabytes) SINGLE_BWRITE,
+  SUM(a.large_write_megabytes) MULTI_BWRITE,
+  SUM(a.SQL_CANCELED) SQL_CANCELED,
+  SUM(a.small_read_megabytes+large_read_megabytes+small_write_megabytes+large_write_megabytes) TOTAL_IO,
+  SUM(a.small_read_megabytes+large_read_megabytes+small_write_megabytes+large_write_megabytes / DECODE(tt.total_io,0,1,total_io)) * 100 as TOTAL_IO_PERCT
 FROM GV$RSRC_SESSION_INFO a,
-DBA_RSRC_CONSUMER_GROUPS gc
+DBA_RSRC_CONSUMER_GROUPS gc,
+total_io tt
 where gc.consumer_group_id = a.current_consumer_group_id
+and tt.inst_id = a.inst_id
 GROUP BY a.inst_id, gc.consumer_group
 order by 1,2 '''
 
